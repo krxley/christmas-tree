@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Christmas Magic - Ultimate</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Times New Roman', serif; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        video { display: none; }
+        
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #d4af37; font-size: 24px; text-align: center; letter-spacing: 3px;
+            text-shadow: 0 0 10px #d4af37; z-index: 10;
+        }
+
+        #start-btn {
+            margin-top: 20px; padding: 10px 20px; background: transparent; 
+            border: 2px solid #d4af37; color: #d4af37; cursor: pointer;
+            font-family: 'Times New Roman', serif; font-size: 18px; transition: 0.3s;
+        }
+
+        #start-btn:hover { background: #d4af37; color: black; }
+
+        #instructions {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            color: rgba(212, 175, 55, 0.8); text-align: center; pointer-events: none;
+            background: rgba(0,0,0,0.5); padding: 15px; border-radius: 10px; border: 1px solid #d4af37;
+            font-size: 14px; line-height: 1.6; display: none;
+        }
+
+        .assets { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="loading">
+        IGNITING STARS...<br>
+        <button id="start-btn">START EXPERIENCE</button>
+    </div>
+    
+    <div id="instructions">
+        <b>HOW TO PLAY:</b><br>
+        Open Hand: Sphere Mode | Closed Hand: Tree Mode<br>
+        <b>Pinch Thumb & Index: Reveal & Change Photo</b>
+    </div>
+
+    <video id="input_video"></video>
+    <canvas id="output_canvas"></canvas>
+
+    <div class="assets">
+        <img id="img0" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\webcam-toy-photo3.jpg">
+        <img id="img1" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\webcam-toy-photo2.jpg">
+        <img id="img2" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\webcam-toy-photo1.jpg">
+        <img id="img3" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\Screenshot 2025-12-29 002707.png">
+        <img id="img4" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\Screenshot 2025-12-29 002412.png">
+        <img id="img5" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\Screenshot 2025-12-29 002539.png">
+        <img id="img6" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\Screenshot 2025-12-29 002516.png">
+        <img id="img7" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\Screenshot 2025-12-29 002608.png">
+        <img id="img8" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\Screenshot 2025-12-29 002725.png">
+        <img id="img9" src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\a54c15d6-e372-4417-ad3c-64d957ac08b1.jpg">
+        
+        <audio id="bgMusic" loop src="C:\Users\Windows 11\Downloads\MERRY CHRISTMAS\Justin Bieber - Mistletoe (Official Music Video) [LUjn3RpkcKY].mp3"></audio>
+        <audio id="shimmerSfx" src="https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3"></audio>
+    </div>
+
+<script>
+    const canvas = document.getElementById('output_canvas');
+    const ctx = canvas.getContext('2d');
+    const bgMusic = document.getElementById('bgMusic');
+    const shimmerSfx = document.getElementById('shimmerSfx');
+    const startBtn = document.getElementById('start-btn');
+    
+    const PARTICLE_COUNT = 1500; 
+    const SPHERE_RADIUS = 450;
+    
+    let width, height;
+    let particles = [];
+    let state = 'TREE'; 
+    let experienceStarted = false;
+    
+    let handPos = { x: 0, y: 0 };
+    let smoothHand = { x: 0, y: 0 };
+    let prevHandX = 0;
+    let globalRotation = 0;
+    let rotationVel = 0.01;
+
+    let isPinching = false;
+    let pinchTriggered = false; 
+    let currentImgIndex = 0;
+    let imageScale = 0;
+
+    const images = Array.from(document.querySelectorAll('.assets img'));
+
+    startBtn.addEventListener('click', () => {
+        experienceStarted = true;
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('instructions').style.display = 'block';
+        bgMusic.play().catch(e => console.log("Audio play blocked"));
+    });
+
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+        smoothHand = { x: width/2, y: height/2 };
+        handPos = { x: width/2, y: height/2 };
+        prevHandX = width/2;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    class Particle {
+        constructor() { this.reset(); }
+        reset() {
+            this.u = Math.random();
+            this.v = Math.random();
+            this.w = Math.random();
+            this.theta = Math.random() * Math.PI * 2;
+            this.phi = Math.acos(2 * Math.random() - 1);
+            this.x = Math.random() * width;
+            this.y = Math.random() * height;
+            this.z = Math.random() * 500;
+            this.size = Math.random() * 4.0 + 1.0;
+            this.baseColor = this.getGoldColor();
+            this.isBlinker = Math.random() > 0.4; 
+            this.blinkSpeed = Math.random() * 0.004 + 0.002; 
+            this.blinkOffset = Math.random() * 1000;
+        }
+
+        getGoldColor() {
+            const r = Math.random();
+            if (r > 0.90) return {r:255, g:255, b:255}; 
+            if (r > 0.85) return {r:255, g:40, b:40};   
+            if (r > 0.60) return {r:255, g:215, b:0};   
+            return {r:200, g:150, b:20};                
+        }
+
+        update() {
+            let tx, ty, tz;
+            if (state === 'TREE') {
+                const treeHeight = 550; 
+                const treeWidth = 240;  
+                const yNorm = this.u; 
+                const r = yNorm * treeWidth;
+                const angle = this.v * Math.PI * 12 + globalRotation;
+                tx = width/2 + Math.cos(angle) * r;
+                ty = (height/2 - 200) + (yNorm * treeHeight);
+                tz = Math.sin(angle) * r;
+            } else {
+                const r = (SPHERE_RADIUS * Math.sqrt(this.w)) + (this.v * 40);
+                const rotTheta = this.theta + globalRotation;
+                tx = smoothHand.x + (r * Math.sin(this.phi) * Math.cos(rotTheta));
+                ty = smoothHand.y + (r * Math.sin(this.phi) * Math.sin(rotTheta));
+                tz = r * Math.cos(this.phi);
+            }
+            this.x += (tx - this.x) * 0.1;
+            this.y += (ty - this.y) * 0.1;
+            this.z += (tz - this.z) * 0.1;
+        }
+
+        draw() {
+            const fov = 350;
+            const scale = fov / (fov + this.z + 100);
+            const px = (this.x - width/2) * scale + width/2;
+            const py = (this.y - height/2) * scale + height/2;
+            if (scale > 0) {
+                let alpha = 1.0;
+                if (this.isBlinker) {
+                    const time = Date.now();
+                    const sine = (Math.sin(time * this.blinkSpeed + this.blinkOffset) + 1) / 2; 
+                    alpha = sine * 0.8 + 0.2;
+                }
+                ctx.globalAlpha = Math.min(1, scale * alpha);
+                ctx.fillStyle = `rgb(${this.baseColor.r},${this.baseColor.g},${this.baseColor.b})`;
+                ctx.beginPath();
+                if (this.size > 2.0) {
+                    ctx.arc(px, py, (this.size * scale) / 2, 0, Math.PI*2);
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(px, py, this.size * scale, this.size * scale);
+                }
+                ctx.globalAlpha = 1.0;
+            }
+        }
+    }
+
+    for(let i=0; i<PARTICLE_COUNT; i++) particles.push(new Particle());
+
+    function drawStar(x, y, radius, points, innerRadius) {
+        ctx.beginPath();
+        ctx.fillStyle = "#ffdf00";
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = "gold";
+        for (let i = 0; i < points * 2; i++) {
+            let r = i % 2 === 0 ? radius : innerRadius;
+            let a = (Math.PI / points) * i;
+            ctx.lineTo(x + r * Math.sin(a), y - r * Math.cos(a));
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    function animate() {
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, width, height);
+
+        if (!experienceStarted) {
+            requestAnimationFrame(animate);
+            return;
+        }
+
+        smoothHand.x += (handPos.x - smoothHand.x) * 0.2;
+        smoothHand.y += (handPos.y - smoothHand.y) * 0.2;
+
+        if (state === 'SPHERE') {
+            let delta = handPos.x - prevHandX;
+            rotationVel += delta * 0.002;
+            rotationVel *= 0.94;
+        } else {
+            rotationVel = 0.01;
+            drawStar(width/2, height/2 - 220, 25, 5, 10); 
+        }
+        globalRotation += rotationVel;
+        prevHandX = handPos.x;
+
+        ctx.fillStyle = "#FFF";
+        ctx.font = "30px 'Times New Roman'";
+        ctx.textAlign = "center";
+        ctx.fillText("MERRY CHRISTMAS", width/2, 80);
+
+        if(Math.random() > 0.5) particles.sort((a,b) => b.z - a.z);
+        
+        particles.forEach(p => {
+            p.update();
+            p.draw();
+        });
+
+        if (state === 'SPHERE') {
+            let targetScale = isPinching ? 1 : 0;
+            imageScale += (targetScale - imageScale) * 0.12; 
+            if (imageScale > 0.01) {
+                const img = images[currentImgIndex];
+                if (img) {
+                    const maxSize = 350;
+                    const currentSize = maxSize * imageScale;
+                    const x = smoothHand.x - currentSize/2;
+                    const y = smoothHand.y - currentSize/2;
+                    ctx.save();
+                    ctx.drawImage(img, x, y, currentSize, currentSize);
+                    ctx.strokeStyle = "#d4af37";
+                    ctx.lineWidth = 10 * imageScale; 
+                    ctx.strokeRect(x, y, currentSize, currentSize);
+                    ctx.restore();
+                }
+            }
+        }
+        requestAnimationFrame(animate);
+    }
+    animate();
+
+    const videoElement = document.getElementById('input_video');
+
+    function onResults(results) {
+        if (!experienceStarted) return;
+
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const l = results.multiHandLandmarks[0];
+            const wrist = l[0];
+            const thumb = l[4];
+            const index = l[8];
+
+            handPos.x = (1 - wrist.x) * width;
+            handPos.y = wrist.y * height;
+
+            const tips = [8, 12, 16, 20];
+            let spread = 0;
+            tips.forEach(i => {
+                const dx = l[i].x - wrist.x;
+                const dy = l[i].y - wrist.y;
+                spread += Math.sqrt(dx*dx + dy*dy);
+            });
+            spread /= 4;
+            state = (spread > 0.22) ? 'SPHERE' : 'TREE';
+
+            const dx = thumb.x - index.x;
+            const dy = thumb.y - index.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+
+            if (dist < 0.05 && state === 'SPHERE') {
+                if (!pinchTriggered && images.length > 0) {
+                    currentImgIndex = (currentImgIndex + 1) % images.length;
+                    shimmerSfx.currentTime = 0;
+                    shimmerSfx.play();
+                    pinchTriggered = true; 
+                }
+                isPinching = true;
+            } else {
+                isPinching = false;
+                pinchTriggered = false; 
+            }
+        } else {
+            state = 'TREE';
+            isPinching = false;
+            pinchTriggered = false;
+        }
+    }
+
+    const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    hands.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+        onFrame: async () => { await hands.send({image: videoElement}); },
+        width: 640, height: 480
+    });
+    camera.start();
+
+</script>
+</body>
+</html>
